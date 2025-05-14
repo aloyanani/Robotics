@@ -24,7 +24,7 @@ class DroneController:
             return new_mode == "LAND"
 
         # Arm
-        if len(parts) == 1 and parts[0] == "arm":
+        if len(parts) == 2 and parts[0] == "arm" and parts[1] == "throttle":
             print("Arming motors...")
             self.vehicle.armed = True
             while not self.vehicle.armed:
@@ -42,10 +42,10 @@ class DroneController:
                 return False
 
             if not self.vehicle.armed:
-                print("✖ ERROR: Drone is not armed.")
+                print("ERROR: Drone is not armed.")
                 return False
             if self.vehicle.mode.name != "GUIDED":
-                print("✖ ERROR: Mode must be GUIDED.")
+                print("ERROR: Mode must be GUIDED.")
                 return False
 
             target_alt = self.vehicle.location.global_relative_frame.alt + relative_alt

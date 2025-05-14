@@ -21,7 +21,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             command = command.lower()
 
             print(f"You said: {command}")
-            s.sendall(command.encode())
+            s.sendall(command.encode())    # Converts the string into bytes and sends it through the TCP socket to WSL
 
             if "exit" in command:
                 print("Landing command received. Exiting...")
