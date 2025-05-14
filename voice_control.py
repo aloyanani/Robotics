@@ -1,6 +1,8 @@
 from dronekit import connect, VehicleMode, LocationGlobalRelative
 import time
 import socket
+import math
+from pymavlink import mavutil
 
 class DroneController:
     def __init__(self):
@@ -29,22 +31,21 @@ class DroneController:
                 print("  → Waiting for arming...")
                 time.sleep(1)
             print("Motors armed.")
-            return False
+            return False 
 
-        # Takeoff part
-        if len(parts) == 2 and parts[0] == "takeoff":
+        # Takeoff
+        if len(parts) == 3 and parts[0] == "take" and parts[1] == "off":
             try:
-                relative_alt = float(parts[1])
+                relative_alt = float(parts[2])
             except ValueError:
-                print("Invalid altitude. Use: takeoff 10")
+                print("Invalid altitude.")
                 return False
 
             if not self.vehicle.armed:
-                print("✖ ERROR: Drone is not armed. Say 'arm' first.")
+                print("✖ ERROR: Drone is not armed.")
                 return False
-
             if self.vehicle.mode.name != "GUIDED":
-                print("✖ ERROR: Mode must be GUIDED. Say 'mode GUIDED' first.")
+                print("✖ ERROR: Mode must be GUIDED.")
                 return False
 
             target_alt = self.vehicle.location.global_relative_frame.alt + relative_alt
@@ -56,38 +57,64 @@ class DroneController:
             print("Reached target altitude.")
             return False
 
-        # === MOVEMENT ===
-        if len(parts) == 2:
-            direction, value = parts
+        # TURN AND MOVE (e.g., "right 5", "left 5")
+        if len(parts) == 2 and parts[0] in ["right", "left"]:
+            turn_dir = parts[0]
             try:
-                distance = float(value)
+                distance = float(parts[1])
             except ValueError:
-                print("Invalid number.")
+                print("Invalid distance.")
                 return False
 
-            offset = distance * 0.00001  # ~1 meter in degrees
+            original_heading = self.vehicle.heading
+            turn_angle = 90  # always turn 90 degrees
+            target_heading = (original_heading + (turn_angle if turn_dir == "right" else -turn_angle)) % 360
+
+            print(f"Turning {turn_dir} to heading {target_heading}°...")
+            self.vehicle.send_mavlink(self.vehicle.message_factory.command_long_encode(
+                0, 0,
+                mavutil.mavlink.MAV_CMD_CONDITION_YAW,
+                0,
+                turn_angle,           # 90° turn
+                10,                   # Turn speed (degrees/sec)
+                1 if turn_dir == "right" else -1,  # Turn direction
+                1,                   # 1 = relative to current heading
+                0, 0, 0
+            ))
+            time.sleep(4)
+
+            heading_rad = math.radians(target_heading)
             loc = self.vehicle.location.global_relative_frame
-            lat, lon, alt = loc.lat, loc.lon, loc.alt
+            d_lat = distance * math.cos(heading_rad) / 111139
+            d_lon = distance * math.sin(heading_rad) / (111139 * math.cos(math.radians(loc.lat)))
+            target = LocationGlobalRelative(loc.lat + d_lat, loc.lon + d_lon, loc.alt)
 
-            if direction == "forward":
-                lat += offset
-            elif direction == "backward":
-                lat -= offset
-            elif direction == "right":
-                lon += offset
-            elif direction == "left":
-                lon -= offset
-            else:
-                print("Unknown direction.")
-                return False
-
-            target = LocationGlobalRelative(lat, lon, alt)
+            print(f"Moving {distance} meters in {turn_dir} direction.")
             self.vehicle.simple_goto(target)
-            print(f"Moving {direction} by {distance} meters.")
             return False
 
-        # If command is unknown
-        print("Unknown command or wrong format.")
+        # FORWARD/BACKWARD MOVEMENT
+        if len(parts) == 2 and parts[0] in ["forward", "backward"]:
+            try:
+                distance = float(parts[1])
+            except ValueError:
+                print("Invalid distance.")
+                return False
+
+            heading = math.radians(self.vehicle.heading)
+            if parts[0] == "backward":
+                heading += math.pi  # reverse
+
+            current = self.vehicle.location.global_relative_frame
+            d_lat = distance * math.cos(heading) / 111139
+            d_lon = distance * math.sin(heading) / (111139 * math.cos(math.radians(current.lat)))
+            target = LocationGlobalRelative(current.lat + d_lat, current.lon + d_lon, current.alt)
+
+            print(f"Moving {parts[0]} {distance} meters based on heading.")
+            self.vehicle.simple_goto(target)
+            return False
+
+        print("Unknown command.")
         return False
 
     def run(self):
